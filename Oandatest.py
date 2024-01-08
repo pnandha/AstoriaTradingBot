@@ -17,7 +17,7 @@ def fetch_account_details(api, account_id):
         print("Error: {}".format(err))
         return None
     
-def check_positions_and_decide_action(api, account_id, instrument, trading_signal):
+def check_positions_and_decide_action(api, account_id, instrument, trading_signal, unit_size):
     account_info = fetch_account_details(api, account_id)
     if account_info:
         positions = account_info['account']['positions']
@@ -27,18 +27,16 @@ def check_positions_and_decide_action(api, account_id, instrument, trading_signa
                 units_short = int(position['short']['units'])
 
                 if units_long > 0 and trading_signal == 'sell':
-                    # Close long position
                     return -units_long
                 elif units_short > 0 and trading_signal == 'buy':
-                    # Close short position
                     return -units_short
                 elif units_long == 0 and units_short == 0:
-                    # No existing position, follow the trading signal
                     if trading_signal == 'buy':
-                        return 100  # Example: Buying 100 units
+                        return unit_size
                     elif trading_signal == 'sell':
-                        return -100  # Example: Selling 100 units
-    return 0  # Default to no action
+                        return -unit_size
+                return 0
+
     
 def place_order(api, account_id, instrument, units, stop_loss, take_profit):
     data = {
@@ -149,6 +147,9 @@ def main():
     account_id = '101-004-27786726-001'
     api = API(access_token=access_token)
     instruments_list = ["EUR_USD", "GBP_USD", "AUD_USD", "USD_CAD"]
+
+    unit_size = 10000
+
     for instrument in instruments_list:
     # Fetch historical data
         historical_data = fetch_data(api, instrument, 1500, "H1")
@@ -175,7 +176,7 @@ def main():
         # Use the latest data point for prediction
         latest_data = data.iloc[-1]
         trading_signal = evaluate_trading_signal(latest_data)
-        action_units = check_positions_and_decide_action(api, account_id, instrument, trading_signal)
+        action_units = check_positions_and_decide_action(api, account_id, instrument, trading_signal, unit_size)
 
         if action_units != 0:
             stop_loss, take_profit = calculate_stop_loss_take_profit(latest_data['price'], trading_signal, instrument)
@@ -186,13 +187,13 @@ def main():
 
         if trading_signal != 'hold':
             stop_loss, take_profit = calculate_stop_loss_take_profit(latest_data['price'], trading_signal, instrument)
-            units = 100  # Define your position size logic
+            
             if trading_signal == 'buy':
-                print(f"Placing Buy Order for {instrument} units : {units}")
-                place_order(api, account_id, instrument, units, stop_loss, take_profit)
+                print(f"Placing Buy Order for {instrument} units : {unit_size}")
+                place_order(api, account_id, instrument, unit_size , stop_loss, take_profit)
             elif trading_signal == 'sell':
-                print(f"Placing Sell Order for {instrument} units : {-units}")
-                place_order(api, account_id, instrument, -units, stop_loss, take_profit)
+                print(f"Placing Sell Order for {instrument} units : {-unit_size}")
+                place_order(api, account_id, instrument, -unit_size, stop_loss, take_profit)
         else: 
             print(f"No action taken for {instrument}")
 
