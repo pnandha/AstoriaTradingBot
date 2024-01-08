@@ -17,45 +17,40 @@ def fetch_account_details(api, account_id):
         print("Error: {}".format(err))
         return None
     
-def check_positions_and_sell(api, account_id, instrument, model_prediction, last_known_price):
+def check_positions_and_decide_action(api, account_id, instrument, trading_signal):
     account_info = fetch_account_details(api, account_id)
-    
     if account_info:
-        # Example: Check if there are existing positions for the instrument
         positions = account_info['account']['positions']
         for position in positions:
             if position['instrument'] == instrument:
-                units = int(position['long']['units']) if float(position['long']['units']) > 0 else int(position['short']['units'])
-                unrealized_pl = float(position['unrealizedPL'])
+                units_long = int(position['long']['units'])
+                units_short = int(position['short']['units'])
 
-                # Example Selling Logic: Close position if there's a profit or if the model predicts a decrease
-                if unrealized_pl > 0 or model_prediction < last_known_price:
-                    print(f"Selling {units} units of {instrument} due to profit or predicted decrease.")
-                    place_sell(api, account_id, instrument, -units)  # Negative units for selling
-                break
-
-def place_sell(api, account_id, instrument, units):
-    data = {
-        "order": {
-            "instrument": instrument,
-            "units": units,
-            "type": "MARKET",
-        }
-    }
-    r = orders.OrderCreate(account_id, data)
-    try:
-        api.request(r)
-    except oandapyV20.exceptions.V20Error as err:
-        print("Error: {}".format(err))
-
-def place_order(api, account_id, instrument, units, stop_loss_distance):
+                if units_long > 0 and trading_signal == 'sell':
+                    # Close long position
+                    return -units_long
+                elif units_short > 0 and trading_signal == 'buy':
+                    # Close short position
+                    return -units_short
+                elif units_long == 0 and units_short == 0:
+                    # No existing position, follow the trading signal
+                    if trading_signal == 'buy':
+                        return 100  # Example: Buying 100 units
+                    elif trading_signal == 'sell':
+                        return -100  # Example: Selling 100 units
+    return 0  # Default to no action
+    
+def place_order(api, account_id, instrument, units, stop_loss, take_profit):
     data = {
         "order": {
             "instrument": instrument,
             "units": units,
             "type": "MARKET",
             "stopLossOnFill": {
-                "distance": str(stop_loss_distance)
+                "price": str(stop_loss)
+            },
+            "takeProfitOnFill": {
+                "price": str(take_profit)
             }
         }
     }
@@ -94,15 +89,60 @@ def fetch_data(api, instrument, count, granularity):
 def prepare_data(candle_data):
     df = pd.DataFrame([{
         'price': float(candle['mid']['c']),
+        'high': float(candle['mid']['h']),
+        'low': float(candle['mid']['l']),
+        'volume': float(candle['volume']),
         'time': candle['time']
     } for candle in candle_data])
 
+    # Calculate Moving Averages
     df['MA_50'] = calculate_moving_average(df['price'], 50)
     df['MA_200'] = calculate_moving_average(df['price'], 200)
+
+    # Calculate RSI
     df['RSI'] = calculate_rsi(df['price'], 14)
+
+    # Calculate Volume Average
+    df['Volume_Avg'] = df['volume'].rolling(window=50).mean()
+
+    # Calculate Volatility (using Average True Range as an example)
+    df['ATR'] = calculate_atr(df['high'], df['low'], df['price'], 14)
 
     df.dropna(inplace=True)  # Drop rows with NaN values
     return df
+
+def evaluate_trading_signal(data_row):
+    # Placeholder for complex trading signal evaluation logic
+    # Example: Check if price is above MA_200 and RSI is below 70 for a buy signal
+    if data_row['MA_200'] < data_row['price'] and data_row['RSI'] < 70:
+        return 'buy'
+    elif data_row['MA_200'] > data_row['price'] and data_row['RSI'] > 30:
+        return 'sell'
+    return 'hold'
+
+def calculate_stop_loss_take_profit(price, signal, instrument):
+    # Adjust these values as per your risk management strategy
+    stop_loss_buffer = 0.001  # Example buffer
+    take_profit_buffer = 0.001  # Example buffer
+
+    if instrument in ['EUR_USD', 'GBP_USD', 'AUD_USD']:  # Assuming these are similar in precision
+        stop_loss = round(price + stop_loss_buffer if signal == 'sell' else price - stop_loss_buffer, 5)
+        take_profit = round(price - take_profit_buffer if signal == 'sell' else price + take_profit_buffer, 5)
+    elif instrument == 'USD_CAD':  # Adjust if different precision is needed
+        stop_loss = round(price + stop_loss_buffer if signal == 'sell' else price - stop_loss_buffer, 5)
+        take_profit = round(price - take_profit_buffer if signal == 'sell' else price + take_profit_buffer, 5)
+    # Add more conditions if you have other instruments with different precisions
+
+    return stop_loss, take_profit
+
+def calculate_atr(high, low, close, window):
+    high_low = high - low
+    high_close = np.abs(high - close.shift())
+    low_close = np.abs(low - close.shift())
+    ranges = np.vstack([high_low, high_close, low_close])
+    true_range = np.max(ranges, axis=0)
+    atr = pd.Series(true_range).rolling(window=window).mean()
+    return atr
 
 def main():
     access_token = 'dbf13bc036f3f4d00de4e92c84ec7e44-fbb6589170a6fed95593e632dc70f7a7'
@@ -116,8 +156,8 @@ def main():
         # Prepare data
         data = prepare_data(historical_data)
 
-        # Define features and target
-        X = data[['MA_50', 'MA_200', 'RSI']]
+        # Define features and target. Now including Volume_Avg and ATR.
+        X = data[['MA_50', 'MA_200', 'RSI', 'Volume_Avg', 'ATR']]
         y = data['price']
 
         # Split data into train and test sets
@@ -127,32 +167,34 @@ def main():
         model = RandomForestRegressor(n_estimators=100, random_state=0)
         model.fit(X_train, y_train)
 
-        # Make predictions
+        # Make predictions and compare with actual values
         predictions = model.predict(X_test)
-
-        # Compare predictions with actual values
         for pred, actual in zip(predictions[:10], y_test[:10]):
             print(f'Predicted: {pred}, Actual: {actual}')
 
-        predictions = model.predict(X_test)
+        # Use the latest data point for prediction
+        latest_data = data.iloc[-1]
+        trading_signal = evaluate_trading_signal(latest_data)
+        action_units = check_positions_and_decide_action(api, account_id, instrument, trading_signal)
 
-        # Compare predictions with actual values
-        for pred, actual in zip(predictions[:10], y_test[:10]):
-            print(f'Predicted: {pred}, Actual: {actual}')
-
-        latest_features = X.iloc[-1].to_frame().transpose()  # Convert the last row to a DataFrame
-        next_price_prediction = model.predict(latest_features)[0]
-        last_known_price = y.iloc[-1]
-
-        # Check positions and decide on selling
-        check_positions_and_sell(api, account_id, instrument, next_price_prediction, last_known_price)
-
-        # Buy logic (as previously implemented)
-        if next_price_prediction > last_known_price:
-            print(f"Placing Buy Order: Predicted Price: {next_price_prediction}, Last Known Price: {last_known_price}")
-            place_order(api, account_id, instrument, 100, 0.001)  # Example: Buying 100 units
+        if action_units != 0:
+            stop_loss, take_profit = calculate_stop_loss_take_profit(latest_data['price'], trading_signal, instrument)
+            print(f"Placing Order for {instrument}: Units = {action_units}")
+            place_order(api, account_id, instrument, action_units, stop_loss, take_profit)
         else:
-            print("No action taken")
+            print(f"No action taken for {instrument}")
+            
+        if trading_signal != 'hold':
+            stop_loss, take_profit = calculate_stop_loss_take_profit(latest_data['price'], trading_signal, instrument)
+            units = 100  # Define your position size logic
+            if trading_signal == 'buy':
+                print(f"Placing Buy Order for {instrument}")
+                place_order(api, account_id, instrument, units, stop_loss, take_profit)
+            elif trading_signal == 'sell':
+                print(f"Placing Sell Order for {instrument}")
+                place_order(api, account_id, instrument, -units, stop_loss, take_profit)
+        else: 
+            print(f"No action taken for {instrument}")
 
 if __name__ == "__main__":
     main()
