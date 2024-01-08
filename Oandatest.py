@@ -38,18 +38,12 @@ def check_positions_and_decide_action(api, account_id, instrument, trading_signa
                 return 0
 
     
-def place_order(api, account_id, instrument, units, stop_loss, take_profit):
+def place_order(api, account_id, instrument, units):
     data = {
         "order": {
             "instrument": instrument,
             "units": units,
             "type": "MARKET",
-            "stopLossOnFill": {
-                "price": str(stop_loss)
-            },
-            "takeProfitOnFill": {
-                "price": str(take_profit)
-            }
         }
     }
     r = orders.OrderCreate(account_id, data)
@@ -118,20 +112,6 @@ def evaluate_trading_signal(data_row):
         return 'sell'
     return 'hold'
 
-def calculate_stop_loss_take_profit(price, signal, instrument):
-    # Adjust these values as per your risk management strategy
-    stop_loss_buffer = 0.001  # Example buffer
-    take_profit_buffer = 0.001  # Example buffer
-
-    if instrument in ['EUR_USD', 'GBP_USD', 'AUD_USD']:  # Assuming these are similar in precision
-        stop_loss = round(price + stop_loss_buffer if signal == 'sell' else price - stop_loss_buffer, 5)
-        take_profit = round(price - take_profit_buffer if signal == 'sell' else price + take_profit_buffer, 5)
-    elif instrument == 'USD_CAD':  # Adjust if different precision is needed
-        stop_loss = round(price + stop_loss_buffer if signal == 'sell' else price - stop_loss_buffer, 5)
-        take_profit = round(price - take_profit_buffer if signal == 'sell' else price + take_profit_buffer, 5)
-    # Add more conditions if you have other instruments with different precisions
-
-    return stop_loss, take_profit
 
 def calculate_atr(high, low, close, window):
     high_low = high - low
@@ -179,21 +159,18 @@ def main():
         action_units = check_positions_and_decide_action(api, account_id, instrument, trading_signal, unit_size)
 
         if action_units != 0:
-            stop_loss, take_profit = calculate_stop_loss_take_profit(latest_data['price'], trading_signal, instrument)
             print(f"Placing Order for {instrument}: Units = {action_units}")
-            place_order(api, account_id, instrument, action_units, stop_loss, take_profit)
+            place_order(api, account_id, instrument, action_units)
         else:
             print(f"No action taken for {instrument}")
 
-        if trading_signal != 'hold':
-            stop_loss, take_profit = calculate_stop_loss_take_profit(latest_data['price'], trading_signal, instrument)
-            
+        if trading_signal != 'hold':     
             if trading_signal == 'buy':
                 print(f"Placing Buy Order for {instrument} units : {unit_size}")
-                place_order(api, account_id, instrument, unit_size , stop_loss, take_profit)
+                place_order(api, account_id, instrument, unit_size )
             elif trading_signal == 'sell':
                 print(f"Placing Sell Order for {instrument} units : {-unit_size}")
-                place_order(api, account_id, instrument, -unit_size, stop_loss, take_profit)
+                place_order(api, account_id, instrument, -unit_size)
         else: 
             print(f"No action taken for {instrument}")
 
