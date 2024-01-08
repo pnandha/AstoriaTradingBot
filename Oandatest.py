@@ -148,7 +148,7 @@ def main():
     api = API(access_token=access_token)
     instruments_list = ["EUR_USD", "GBP_USD", "AUD_USD", "USD_CAD"]
 
-    unit_size = 10000
+    unit_size = 100000
 
     for instrument in instruments_list:
     # Fetch historical data
