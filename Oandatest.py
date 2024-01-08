@@ -183,15 +183,15 @@ def main():
             place_order(api, account_id, instrument, action_units, stop_loss, take_profit)
         else:
             print(f"No action taken for {instrument}")
-            
+
         if trading_signal != 'hold':
             stop_loss, take_profit = calculate_stop_loss_take_profit(latest_data['price'], trading_signal, instrument)
             units = 100  # Define your position size logic
             if trading_signal == 'buy':
-                print(f"Placing Buy Order for {instrument}")
+                print(f"Placing Buy Order for {instrument} units : {units}")
                 place_order(api, account_id, instrument, units, stop_loss, take_profit)
             elif trading_signal == 'sell':
-                print(f"Placing Sell Order for {instrument}")
+                print(f"Placing Sell Order for {instrument} units : {-units}")
                 place_order(api, account_id, instrument, -units, stop_loss, take_profit)
         else: 
             print(f"No action taken for {instrument}")
