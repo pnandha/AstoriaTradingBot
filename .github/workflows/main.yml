@@ -1,8 +1,6 @@
 name: Trading Bot Schedule
 on:
   workflow_dispatch:
-  schedule:
-  - cron: '*/30 * * * 1-5'
 jobs:
   run-script:
     runs-on: ubuntu-latest
