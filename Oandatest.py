@@ -31,8 +31,22 @@ def check_positions_and_sell(api, account_id, instrument, model_prediction, last
                 # Example Selling Logic: Close position if there's a profit or if the model predicts a decrease
                 if unrealized_pl > 0 or model_prediction < last_known_price:
                     print(f"Selling {units} units of {instrument} due to profit or predicted decrease.")
-                    place_order(api, account_id, instrument, -units)  # Negative units for selling
+                    place_sell(api, account_id, instrument, -units)  # Negative units for selling
                 break
+
+def place_sell(api, account_id, instrument, units):
+    data = {
+        "order": {
+            "instrument": instrument,
+            "units": units,
+            "type": "MARKET",
+        }
+    }
+    r = orders.OrderCreate(account_id, data)
+    try:
+        api.request(r)
+    except oandapyV20.exceptions.V20Error as err:
+        print("Error: {}".format(err))
 
 def place_order(api, account_id, instrument, units, stop_loss_distance):
     data = {
